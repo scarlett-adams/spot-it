@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spot It! Speed Run</title>
+<style>
+  :root {
+    --bg1: #fef6e4; --bg2: #e8f4fd; --ink: #1f2330; --muted: #6b7280;
+    --good: #22a34a; --bad: #e0282e; --accent: #ff5a36; --panel: #ffffffcc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    color: var(--ink);
+    background: radial-gradient(circle at 20% 10%, var(--bg1), var(--bg2) 70%);
+    display: flex; flex-direction: column; align-items: center;
+    user-select: none; -webkit-user-select: none;
+  }
+  header {
+    width: 100%; max-width: 1100px; padding: 14px 16px 4px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  h1 { margin: 0; font-size: 28px; letter-spacing: 1px; color: var(--accent); text-shadow: 2px 2px 0 #ffd23f; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border-radius: 12px; padding: 6px 14px; box-shadow: 0 2px 6px #0001; text-align: center; min-width: 92px; }
+  .stat .lbl { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .5px; }
+  .stat .val { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
+  #timer.flash { color: var(--bad); }
+  main { flex: 1; width: 100%; max-width: 1100px; display: flex; align-items: center; justify-content: center; padding: 8px 16px 16px; }
+  #table { display: flex; gap: 4vw; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .pile { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .pile .name { font-weight: bold; color: var(--muted); font-size: 15px; }
+  .card {
+    width: min(44vw, 68vh, 460px); height: min(44vw, 68vh, 460px);
+    border-radius: 50%; background: #fff; position: relative;
+    box-shadow: 0 6px 0 #d9dde3, 0 10px 24px #0002;
+  }
+  .card svg { width: 100%; height: 100%; display: block; }
+  .card .sym { cursor: pointer; }
+  .card .sym:hover use { filter: drop-shadow(0 0 2px #0006); }
+  .card.ok { animation: ok .25s ease-out; }
+  .card.wrong { animation: shake .3s; }
+  @keyframes ok { 0% { transform: scale(.9); } 100% { transform: scale(1); } }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
+  .penalty {
+    position: fixed; pointer-events: none; font-weight: bold; font-size: 26px; color: var(--bad);
+    animation: floatUp .8s ease-out forwards; text-shadow: 0 1px 0 #fff;
+  }
+  @keyframes floatUp { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -60px); } }
+  .overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #1f233055; backdrop-filter: blur(3px); z-index: 10; padding: 16px;
+  }
+  .overlay.hidden { display: none; }
+  .panel {
+    background: #fff; border-radius: 22px; padding: 26px 30px; max-width: 460px; width: 100%;
+    box-shadow: 0 20px 50px #0004; text-align: center;
+  }
+  .panel h2 { margin: 0 0 8px; font-size: 30px; color: var(--accent); }
+  .panel p { color: #444; line-height: 1.45; margin: 8px 0; }
+  .big { font-size: 46px; font-weight: bold; font-variant-numeric: tabular-nums; margin: 6px 0; }
+  .newbest { color: var(--good); font-weight: bold; font-size: 20px; }
+  button {
+    font: inherit; font-weight: bold; font-size: 20px; border: 0; border-radius: 999px;
+    padding: 12px 34px; background: var(--accent); color: #fff; cursor: pointer;
+    box-shadow: 0 4px 0 #c23b1c; margin-top: 12px;
+  }
+  button:active { transform: translateY(2px); box-shadow: 0 2px 0 #c23b1c; }
+  button.secondary { background: #e5e7eb; color: #333; box-shadow: 0 4px 0 #b9bdc4; font-size: 15px; padding: 8px 20px; }
+  table { margin: 12px auto 0; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+  td, th { padding: 3px 12px; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+  tr.me td { background: #fff3c4; font-weight: bold; }
+  #countdown { font-size: 140px; font-weight: bold; color: #fff; text-shadow: 0 6px 0 var(--accent); }
+  .hint { font-size: 13px; color: var(--muted); }
+  #quit { margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- Symbol library (referenced by <use>) -->
+<svg id="lib" width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="defs"></defs></svg>
+
+<header>
+  <h1>SPOT IT!</h1>
+  <div class="stats">
+    <div class="stat"><div class="lbl">Time</div><div class="val" id="timer">0.00</div></div>
+    <div class="stat"><div class="lbl">Cards left</div><div class="val" id="left">54</div></div>
+    <div class="stat"><div class="lbl">Mistakes</div><div class="val" id="miss">0</div></div>
+    <div class="stat"><div class="lbl">Best</div><div class="val" id="best">—</div></div>
+  </div>
+  <button class="secondary" id="quit">Restart</button>
+</header>
+
+<main>
+  <div id="table">
+    <div class="pile">
+      <div class="name">Your pile</div>
+      <div class="card" id="mine"></div>
+    </div>
+    <div class="pile">
+      <div class="name">Center pile</div>
+      <div class="card" id="center"></div>
+    </div>
+  </div>
+</main>
+
+<div class="overlay" id="startScreen">
+  <div class="panel">
+    <h2>Spot It! Speed Run</h2>
+    <p>55 cards, 8 symbols each. Any two cards share <b>exactly one</b> symbol.</p>
+    <p>Find the match between <b>your card</b> and the <b>center card</b> and click it (on either card). Each wrong click adds <b>+1.5s</b>.</p>
+    <p>Clear all 54 cards in your pile as fast as you can!</p>
+    <div id="bestList1"></div>
+    <button id="startBtn">Start</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="countScreen"><div id="countdown">3</div></div>
+
+<div class="overlay hidden" id="endScreen">
+  <div class="panel">
+    <h2>Deck cleared!</h2>
+    <div class="big" id="finalTime"></div>
+    <p id="finalDetail"></p>
+    <div id="newBest" class="newbest"></div>
+    <div id="bestList2"></div>
+    <button id="againBtn">Play again</button>
+    <p class="hint">Tip: press Space or Enter to play again</p>
+  </div>
+</div>
+
+<script>
+// ------------------------------------------------------------------
+// Symbols — 57 drawings in a 100x100 box, styled after the classic deck
+// ------------------------------------------------------------------
+const O = '#2a2a2a'; // outline
+function rep(n, f) { let s = ''; for (let i = 0; i < n; i++) s += f(i); return s; }
+
+const SYMBOLS = [
+  ['anchor', `<g fill="none" stroke="#F08A00" stroke-width="9" stroke-linecap="round">
+      <circle cx="50" cy="17" r="8"/><line x1="50" y1="26" x2="50" y2="86"/>
+      <line x1="30" y1="38" x2="70" y2="38"/><path d="M18 60 Q20 88 50 88 Q80 88 82 60"/></g>
+      <path d="M8 66 L18 50 L28 66Z M72 66 L82 50 L92 66Z" fill="#F08A00"/>`],
+  ['apple', `<path d="M50 30 C30 16 8 30 13 56 C18 82 36 96 50 86 C64 96 82 82 87 56 C92 30 70 16 50 30Z" fill="#7CC242" stroke="#2f6614" stroke-width="3"/>
+      <path d="M50 30 Q51 18 57 9" stroke="#6b3e1e" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M54 22 Q68 6 82 14 Q70 30 54 22Z" fill="#3c8c1f"/><ellipse cx="30" cy="48" rx="6" ry="11" fill="#fff" opacity=".45"/>`],
+  ['baby bottle', `<path d="M40 28 Q40 16 50 6 Q60 16 60 28Z" fill="#F6C28B" stroke="#b9803f" stroke-width="2.5"/>
+      <rect x="27" y="26" width="46" height="13" rx="4" fill="#4FB0E6" stroke="#1f6fa3" stroke-width="2.5"/>
+      <rect x="31" y="38" width="38" height="56" rx="10" fill="#EAF6FD" stroke="#4FA7DA" stroke-width="3"/>
+      <path d="M31 62 H69 V84 Q69 94 59 94 H41 Q31 94 31 84Z" fill="#fff" stroke="#4FA7DA" stroke-width="3"/>
+      <g stroke="#4FA7DA" stroke-width="3"><line x1="31" y1="50" x2="42" y2="50"/><line x1="31" y1="62" x2="44" y2="62"/><line x1="31" y1="74" x2="42" y2="74"/></g>`],
+  ['bomb', `<circle cx="44" cy="60" r="32" fill="#222"/>
+      <rect x="50" y="22" width="18" height="14" rx="2" fill="#555" transform="rotate(40 59 29)"/>
+      <path d="M64 22 Q70 8 82 12" stroke="#8b5a2b" stroke-width="3.5" fill="none"/>
+      <path d="M86 4 L88 10 L95 10 L89 14 L92 21 L86 16 L80 21 L83 14 L77 10 L84 10Z" fill="#FFB400" stroke="#E4312B" stroke-width="1.5"/>
+      <ellipse cx="32" cy="48" rx="7" ry="10" fill="#fff" opacity=".35" transform="rotate(35 32 48)"/>`],
+  ['cactus', `<g fill="#4DAF4E" stroke="#1e6a22" stroke-width="3" stroke-linejoin="round">
+      <path d="M42 92 V24 Q42 12 50 12 Q58 12 58 24 V92Z"/>
+      <path d="M42 62 H30 Q22 62 22 52 V36 Q22 30 28 30 Q34 30 34 36 V50 H42"/>
+      <path d="M58 54 H70 Q78 54 78 44 V30 Q78 24 72 24 Q66 24 66 30 V42 H58"/></g>
+      <g stroke="#1e6a22" stroke-width="2"><line x1="50" y1="22" x2="50" y2="86"/></g>
+      <rect x="30" y="86" width="40" height="10" rx="3" fill="#C8763A" stroke="#7a4012" stroke-width="2.5"/>`],
+  ['candle', `<path d="M50 6 Q64 22 58 34 Q50 42 42 34 Q36 22 50 6Z" fill="#F7931E" stroke="#c9480b" stroke-width="2"/>
+      <path d="M50 18 Q56 28 53 33 Q50 36 47 33 Q44 28 50 18Z" fill="#FFE14D"/>
+      <line x1="50" y1="36" x2="50" y2="42" stroke="#333" stroke-width="3"/>
+      <rect x="36" y="42" width="28" height="50" rx="3" fill="#FDF3C8" stroke="#c9a74a" stroke-width="3"/>
+      <path d="M36 48 Q42 56 46 48 Q48 60 52 48 Q56 54 64 48" fill="none" stroke="#c9a74a" stroke-width="2.5"/>`],
+  ['carrot', `<g fill="#3AA935" stroke="#1d6b1b" stroke-width="2">
+      <path d="M58 34 Q60 14 70 6 Q70 22 64 34Z"/><path d="M62 38 Q78 22 92 22 Q82 36 66 42Z"/><path d="M60 36 Q72 12 88 8 Q80 26 64 40Z"/></g>
+      <path d="M40 34 Q56 24 68 40 Q70 48 62 56 L20 92 Q14 94 16 88Z" fill="#F7941D" stroke="#b85a00" stroke-width="2.5"/>
+      <g stroke="#b85a00" stroke-width="2.5" stroke-linecap="round"><line x1="44" y1="48" x2="52" y2="52"/><line x1="36" y1="62" x2="44" y2="66"/><line x1="28" y1="76" x2="34" y2="78"/></g>`],
+  ['cheese', `<path d="M10 46 L82 20 L92 46 V80 H10Z" fill="#FDD230" stroke="#b58900" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M10 46 L82 20 L92 46Z" fill="#FFE77A" stroke="#b58900" stroke-width="3" stroke-linejoin="round"/>
+      <g fill="#E2A800"><circle cx="30" cy="62" r="7"/><circle cx="56" cy="70" r="5"/><circle cx="74" cy="58" r="8"/><circle cx="46" cy="56" r="3.5"/><circle cx="20" cy="76" r="3"/><circle cx="84" cy="75" r="3"/></g>`],
+  ['chess knight', `<path d="M26 92 H78 V82 H70 Q66 62 72 46 Q78 26 62 16 L58 6 L50 14 Q38 16 32 28 L18 46 Q16 56 26 58 L38 52 Q46 54 42 62 Q32 72 32 82 H26Z" fill="#222"/>
+      <circle cx="44" cy="30" r="3.5" fill="#fff"/><path d="M58 20 Q70 30 64 60" stroke="#fff" stroke-width="2.5" fill="none" opacity=".4"/>`],
+  ['clock', `<circle cx="22" cy="18" r="10" fill="#F39200" stroke="#9a5a00" stroke-width="2"/><circle cx="78" cy="18" r="10" fill="#F39200" stroke="#9a5a00" stroke-width="2"/>
+      <line x1="30" y1="86" x2="24" y2="96" stroke="#9a5a00" stroke-width="5" stroke-linecap="round"/><line x1="70" y1="86" x2="76" y2="96" stroke="#9a5a00" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="50" cy="54" r="38" fill="#F39200" stroke="#9a5a00" stroke-width="2.5"/><circle cx="50" cy="54" r="29" fill="#fff"/>
+      ${rep(12, i => `<line x1="50" y1="28" x2="50" y2="${i % 3 ? 31 : 34}" stroke="#333" stroke-width="2.5" transform="rotate(${i * 30} 50 54)"/>`)}
+      <line x1="50" y1="54" x2="50" y2="36" stroke="#222" stroke-width="4" stroke-linecap="round"/><line x1="50" y1="54" x2="64" y2="60" stroke="#222" stroke-width="4" stroke-linecap="round"/><circle cx="50" cy="54" r="3.5" fill="#E4312B"/>`],
+  ['clown', `<path d="M30 30 L50 2 L70 30Z" fill="#8E44AD" stroke="#4a1a66" stroke-width="2"/><circle cx="50" cy="4" r="5" fill="#FFD200"/>
+      <circle cx="22" cy="46" r="12" fill="#F7941D"/><circle cx="78" cy="46" r="12" fill="#F7941D"/><circle cx="16" cy="58" r="9" fill="#F7941D"/><circle cx="84" cy="58" r="9" fill="#F7941D"/>
+      <circle cx="50" cy="56" r="30" fill="#FFF4DC" stroke="${O}" stroke-width="2.5"/>
+      <circle cx="39" cy="48" r="4" fill="#222"/><circle cx="61" cy="48" r="4" fill="#222"/>
+      <path d="M34 40 L39 36 L44 40 M56 40 L61 36 L66 40" stroke="#1b75bc" stroke-width="2.5" fill="none"/>
+      <path d="M34 66 Q50 82 66 66 Q50 72 34 66Z" fill="#E4002B" stroke="#8a0010" stroke-width="2"/><circle cx="50" cy="58" r="7" fill="#E4002B"/>`],
+  ['daisy', `${rep(12, i => `<ellipse cx="50" cy="23" rx="8.5" ry="20" transform="rotate(${i * 30} 50 50)" fill="#fff" stroke="#9aa0a6" stroke-width="1.8"/>`)}
+      <circle cx="50" cy="50" r="14" fill="#FDB913" stroke="#c77f00" stroke-width="2"/>`],
+  ['dinosaur', `<g fill="#6DB33F" stroke="#2a5d12" stroke-width="2.5" stroke-linejoin="round">
+      <path d="M22 62 Q4 62 2 80 Q14 70 26 74Z"/>
+      <rect x="28" y="70" width="10" height="22" rx="3"/><rect x="54" y="70" width="10" height="22" rx="3"/>
+      <ellipse cx="46" cy="62" rx="28" ry="18"/>
+      <path d="M60 52 Q68 28 72 18 Q74 8 84 9 Q94 11 92 19 L80 22 Q78 42 74 64Z"/></g>
+      <circle cx="84" cy="14" r="2.2" fill="#222"/><path d="M34 50 Q46 44 58 50" stroke="#A7D86D" stroke-width="4" fill="none"/>`],
+  ['dolphin', `<path d="M6 58 Q16 64 22 58 Q34 34 62 34 L70 18 L74 36 Q88 40 96 52 Q88 54 80 52 Q72 64 48 64 L38 78 L36 64 Q26 64 22 70 L14 78 Q14 66 6 58Z" fill="#1B9AD6" stroke="#0b5c86" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M40 58 Q60 60 76 52" stroke="#bfe6f8" stroke-width="4" fill="none"/><circle cx="78" cy="44" r="2.5" fill="#fff"/>`],
+  ['dragon', `<path d="M48 62 L36 18 L52 32 L58 14 L66 42Z" fill="#9BD65F" stroke="#2c6b14" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M12 72 Q30 56 48 64 Q62 70 70 56 L72 40 Q74 28 84 26 L94 30 L88 36 Q82 40 82 48 Q80 74 60 82 Q40 90 26 80 Q18 84 6 88 Q10 78 12 72Z" fill="#4CAF3A" stroke="#1e5e10" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M26 66 L28 58 L34 64 L38 56 L42 64" fill="none" stroke="#1e5e10" stroke-width="2"/>
+      <circle cx="84" cy="31" r="2.2" fill="#FFD200"/><path d="M76 24 L78 16 L82 24" fill="#1e5e10"/>`],
+  ['exclamation', `<rect x="38" y="6" width="24" height="62" rx="12" fill="#E4002B" stroke="#8a0010" stroke-width="2.5"/><circle cx="50" cy="84" r="11" fill="#E4002B" stroke="#8a0010" stroke-width="2.5"/>`],
+  ['eye', `<path d="M6 50 Q50 6 94 50 Q50 94 6 50Z" fill="#fff" stroke="#5B2C83" stroke-width="5"/>
+      <circle cx="50" cy="50" r="18" fill="#9B4FC8"/><circle cx="50" cy="50" r="8" fill="#111"/><circle cx="55" cy="45" r="3.5" fill="#fff"/>
+      <g stroke="#5B2C83" stroke-width="4" stroke-linecap="round"><line x1="30" y1="26" x2="24" y2="16"/><line x1="50" y1="20" x2="50" y2="8"/><line x1="70" y1="26" x2="76" y2="16"/></g>`],
+  ['fire', `<path d="M50 4 Q70 28 70 48 Q80 42 78 28 Q96 50 90 70 Q82 96 50 96 Q18 96 12 70 Q8 50 24 34 Q24 48 34 52 Q30 24 50 4Z" fill="#E4312B" stroke="#8f150f" stroke-width="2.5"/>
+      <path d="M50 38 Q66 56 64 72 Q62 88 50 88 Q36 88 36 74 Q36 62 44 56 Q44 66 50 66 Q48 52 50 38Z" fill="#FDB913"/>`],
+  ['four leaf clover', `<path d="M52 56 Q64 76 76 94" stroke="#1d6b1b" stroke-width="5" fill="none" stroke-linecap="round"/>
+      ${rep(4, i => `<path d="M50 50 C30 40 24 12 40 10 C46 9 50 16 50 20 C50 16 54 9 60 10 C76 12 70 40 50 50Z" fill="#2DA836" stroke="#15611a" stroke-width="2.5" transform="rotate(${i * 90 - 45} 50 50)"/>`)}`],
+  ['ghost', `<path d="M18 92 V44 Q18 10 50 10 Q82 10 82 44 V92 L71 82 L61 92 L50 82 L39 92 L29 82Z" fill="#E4F4FC" stroke="#5BAEDC" stroke-width="3.5" stroke-linejoin="round"/>
+      <ellipse cx="38" cy="42" rx="6" ry="9" fill="#1f2330"/><ellipse cx="62" cy="42" rx="6" ry="9" fill="#1f2330"/><ellipse cx="50" cy="64" rx="7" ry="9" fill="#1f2330"/>`],
+  ['green splat', `<path d="M50 18 Q58 32 70 20 Q72 36 88 36 Q76 48 86 62 Q68 60 66 78 Q54 66 42 82 Q38 64 20 68 Q28 54 12 44 Q30 40 26 24 Q42 32 50 18Z" fill="#7DC242" stroke="#3a7314" stroke-width="2.5" stroke-linejoin="round"/>
+      <circle cx="88" cy="18" r="5" fill="#7DC242"/><circle cx="12" cy="84" r="6" fill="#7DC242"/><circle cx="80" cy="88" r="4" fill="#7DC242"/><circle cx="14" cy="18" r="3.5" fill="#7DC242"/>`],
+  ['hammer', `<g transform="rotate(-38 50 50)"><rect x="44" y="32" width="12" height="64" rx="4" fill="#B5763C" stroke="#6b3e1e" stroke-width="2.5"/>
+      <path d="M16 14 H74 Q86 14 86 26 V36 H16 Q10 25 16 14Z" fill="#8A8F98" stroke="#3f434a" stroke-width="2.5"/></g>`],
+  ['heart', `<path d="M50 90 C20 66 4 50 8 30 C12 10 40 8 50 30 C60 8 88 10 92 30 C96 50 80 66 50 90Z" fill="#E4002B" stroke="#8a0010" stroke-width="3"/>
+      <ellipse cx="28" cy="32" rx="6" ry="10" fill="#fff" opacity=".4" transform="rotate(-30 28 32)"/>`],
+  ['ice cube', `<g stroke="#3a93c9" stroke-width="3" stroke-linejoin="round">
+      <polygon points="50,12 88,28 50,44 12,28" fill="#E8F7FE"/><polygon points="12,28 50,44 50,92 12,74" fill="#A9DCF4"/><polygon points="50,44 88,28 88,74 50,92" fill="#7FC8EC"/></g>
+      <path d="M20 40 V60 M60 56 L78 48" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".8"/>`],
+  ['igloo', `<path d="M8 82 A42 42 0 0 1 92 82Z" fill="#EAF6FC" stroke="#4d9cc9" stroke-width="3.5"/>
+      <g stroke="#4d9cc9" stroke-width="2.5" fill="none"><path d="M14 62 H86 M24 46 H76 M38 34 H62"/>
+      <path d="M30 62 V82 M72 62 V82 M44 46 V62 M60 46 V62 M34 34 V46 M66 34 V46 M50 40 V46"/></g>
+      <path d="M36 82 V68 A14 14 0 0 1 64 68 V82Z" fill="#23506f"/>`],
+  ['key', `<circle cx="26" cy="50" r="16" fill="none" stroke="#F29F05" stroke-width="10"/>
+      <rect x="40" y="44" width="54" height="12" rx="3" fill="#F29F05"/><rect x="74" y="54" width="8" height="16" fill="#F29F05"/><rect x="86" y="54" width="8" height="12" fill="#F29F05"/>`],
+  ['ladybug', `<g stroke="#222" stroke-width="3" stroke-linecap="round" fill="none"><path d="M42 18 Q36 6 28 6"/><path d="M58 18 Q64 6 72 6"/>
+      <line x1="16" y1="50" x2="6" y2="44"/><line x1="16" y1="66" x2="4" y2="68"/><line x1="84" y1="50" x2="94" y2="44"/><line x1="84" y1="66" x2="96" y2="68"/></g>
+      <path d="M32 30 A18 18 0 0 1 68 30Z" fill="#222"/>
+      <circle cx="50" cy="60" r="34" fill="#E4002B" stroke="#222" stroke-width="3"/>
+      <line x1="50" y1="26" x2="50" y2="94" stroke="#222" stroke-width="3"/>
+      <g fill="#222"><circle cx="34" cy="46" r="6"/><circle cx="66" cy="46" r="6"/><circle cx="30" cy="70" r="7"/><circle cx="70" cy="70" r="7"/><circle cx="42" cy="84" r="4.5"/><circle cx="58" cy="84" r="4.5"/></g>`],
+  ['light bulb', `${rep(7, i => `<line x1="50" y1="2" x2="50" y2="9" stroke="#F7B500" stroke-width="3.5" stroke-linecap="round" transform="rotate(${-90 + i * 30} 50 38)"/>`)}
+      <path d="M50 12 A26 26 0 0 1 66 58 L64 68 H36 L34 58 A26 26 0 0 1 50 12Z" fill="#FFE14D" stroke="#C99A00" stroke-width="3"/>
+      <path d="M42 66 L42 48 L46 42 L50 48 L54 42 L58 48 L58 66" fill="none" stroke="#b37a00" stroke-width="2"/>
+      <rect x="36" y="68" width="28" height="16" rx="3" fill="#9aa0a6" stroke="#555" stroke-width="2.5"/><path d="M36 74 H64 M36 79 H64" stroke="#555" stroke-width="2"/>
+      <path d="M42 84 H58 L54 92 H46Z" fill="#555"/>`],
+  ['lightning', `<polygon points="58,4 18,54 46,54 34,96 84,38 56,38 70,4" fill="#FFD400" stroke="#E08A00" stroke-width="3.5" stroke-linejoin="round"/>`],
+  ['lock', `<path d="M30 46 V30 Q30 10 50 10 Q70 10 70 30 V46" fill="none" stroke="#8A8F98" stroke-width="9"/>
+      <rect x="18" y="44" width="64" height="50" rx="8" fill="#F7B500" stroke="#a36d00" stroke-width="3"/>
+      <circle cx="50" cy="64" r="7" fill="#3a2a00"/><path d="M46 66 H54 L56 82 H44Z" fill="#3a2a00"/>`],
+  ['maple leaf', `<polygon points="50,4 58,22 68,18 64,44 80,30 84,40 95,37 88,52 96,58 76,70 80,78 56,74 54,94 46,94 44,74 20,78 24,70 4,58 12,52 5,37 16,40 20,30 36,44 32,18 42,22" fill="#E31E24" stroke="#8a0a0e" stroke-width="2.5" stroke-linejoin="round"/>`],
+  ['moon', `<path d="M60 6 A44 44 0 1 0 94 70 A36 36 0 1 1 60 6Z" fill="#FDD835" stroke="#c49a00" stroke-width="3"/><circle cx="36" cy="44" r="3.5" fill="#6b4e00"/><path d="M34 62 Q42 68 48 62" stroke="#6b4e00" stroke-width="2.5" fill="none" stroke-linecap="round"/>`],
+  ['no entry', `<circle cx="50" cy="50" r="44" fill="#E4002B" stroke="#8a0010" stroke-width="3"/><rect x="16" y="41" width="68" height="18" rx="3" fill="#fff"/>`],
+  ['scarecrow', `<ellipse cx="50" cy="16" rx="22" ry="5" fill="#C69C3A"/><path d="M38 16 Q40 2 50 2 Q60 2 62 16Z" fill="#C69C3A"/>
+      <circle cx="50" cy="26" r="10" fill="#F7941D"/>
+      <g stroke="#F7941D" stroke-width="9" stroke-linecap="round" fill="none"><line x1="50" y1="36" x2="50" y2="66"/><line x1="16" y1="46" x2="84" y2="46"/><line x1="50" y1="64" x2="32" y2="94"/><line x1="50" y1="64" x2="68" y2="94"/></g>
+      <g stroke="#C69C3A" stroke-width="2.5"><path d="M12 42 L6 38 M12 46 H4 M12 50 L6 54 M88 42 L94 38 M88 46 H96 M88 50 L94 54"/></g>`],
+  ['pencil', `<g transform="rotate(-45 50 50)"><rect x="40" y="8" width="20" height="12" rx="3" fill="#F49AC1" stroke="#a3476f" stroke-width="2"/>
+      <rect x="40" y="19" width="20" height="7" fill="#b0b4ba" stroke="#666" stroke-width="2"/>
+      <rect x="40" y="26" width="20" height="50" fill="#FFC20E" stroke="#b37a00" stroke-width="2"/><line x1="50" y1="26" x2="50" y2="76" stroke="#E0A200" stroke-width="2"/>
+      <polygon points="40,76 60,76 50,96" fill="#F5D6A8" stroke="#a37b4a" stroke-width="2" stroke-linejoin="round"/><polygon points="46.5,89 53.5,89 50,96" fill="#333"/></g>`],
+  ['bird', `<path d="M16 50 L2 40 L6 58Z" fill="#6A2C91"/>
+      <ellipse cx="44" cy="56" rx="30" ry="22" fill="#8E44AD" stroke="#4a1a66" stroke-width="2.5"/>
+      <circle cx="70" cy="36" r="16" fill="#8E44AD" stroke="#4a1a66" stroke-width="2.5"/>
+      <path d="M84 34 L98 40 L84 44Z" fill="#F7941D" stroke="#b85a00" stroke-width="1.5"/>
+      <path d="M26 50 Q42 40 56 54 Q42 70 26 50Z" fill="#B57EDC"/><circle cx="74" cy="32" r="4" fill="#fff"/><circle cx="75" cy="32" r="2" fill="#111"/>
+      <path d="M40 78 V92 M52 78 V92" stroke="#F7941D" stroke-width="3.5" stroke-linecap="round"/>`],
+  ['cat', `<path d="M66 86 Q92 86 90 64 Q88 50 80 52" stroke="#6C2A8F" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M26 92 Q20 62 34 50 L66 50 Q80 62 74 92Z" fill="#7B2D9E" stroke="#3f1156" stroke-width="2.5"/>
+      <path d="M28 40 L26 8 L42 22 H58 L74 8 L72 40 Q72 58 50 58 Q28 58 28 40Z" fill="#7B2D9E" stroke="#3f1156" stroke-width="2.5" stroke-linejoin="round"/>
+      <ellipse cx="41" cy="36" rx="4" ry="6" fill="#FFE14D"/><ellipse cx="59" cy="36" rx="4" ry="6" fill="#FFE14D"/>
+      <path d="M46 46 H54 L50 50Z" fill="#F49AC1"/><g stroke="#fff" stroke-width="1.5" opacity=".8"><line x1="36" y1="48" x2="18" y2="46"/><line x1="64" y1="48" x2="82" y2="46"/></g>`],
+  ['hand', `<g fill="#A974D6" stroke="#5a2d82" stroke-width="2.5">
+      <rect x="27" y="14" width="11" height="44" rx="5.5"/><rect x="39" y="6" width="11" height="50" rx="5.5"/><rect x="51" y="8" width="11" height="48" rx="5.5"/><rect x="63" y="16" width="11" height="42" rx="5.5"/>
+      <rect x="10" y="44" width="12" height="36" rx="6" transform="rotate(-35 16 62)"/>
+      <path d="M26 50 H75 V74 Q75 94 52 94 Q27 94 26 74Z"/></g>`],
+  ['question mark', `<path d="M30 34 Q30 10 52 10 Q74 10 74 32 Q74 46 58 52 Q50 56 50 68" stroke="#0072BC" stroke-width="13" fill="none" stroke-linecap="round"/><circle cx="50" cy="87" r="8" fill="#0072BC"/>`],
+  ['lips', `<path d="M6 50 Q26 24 42 30 Q50 34 58 30 Q74 24 94 50 Q50 58 6 50Z" fill="#E4002B" stroke="#8a0010" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M6 50 Q50 60 94 50 Q78 82 50 82 Q22 82 6 50Z" fill="#E4002B" stroke="#8a0010" stroke-width="2.5" stroke-linejoin="round"/>
+      <ellipse cx="50" cy="68" rx="14" ry="4" fill="#fff" opacity=".35"/>`],
+  ['scissors', `<g stroke-linecap="round"><line x1="40" y1="66" x2="74" y2="6" stroke="#9aa0a6" stroke-width="8"/><line x1="60" y1="66" x2="26" y2="6" stroke="#b9bec4" stroke-width="8"/></g>
+      <circle cx="50" cy="44" r="3" fill="#444"/>
+      <g fill="none" stroke="#8E44AD" stroke-width="8"><circle cx="33" cy="80" r="12"/><circle cx="67" cy="80" r="12"/></g>`],
+  ['skull', `<g stroke="${O}" stroke-width="2.5" fill="#fff">
+      <path d="M12 60 L88 92" stroke-width="10" stroke="${O}"/><path d="M88 60 L12 92" stroke-width="10" stroke="${O}"/>
+      <path d="M12 60 L88 92 M88 60 L12 92" stroke-width="5" stroke="#fff"/>
+      <circle cx="10" cy="56" r="5"/><circle cx="16" cy="54" r="5"/><circle cx="90" cy="56" r="5"/><circle cx="84" cy="54" r="5"/>
+      <circle cx="10" cy="94" r="5"/><circle cx="16" cy="96" r="5"/><circle cx="90" cy="94" r="5"/><circle cx="84" cy="96" r="5"/>
+      <path d="M22 40 A28 28 0 0 1 78 40 Q78 56 68 60 V72 H32 V60 Q22 56 22 40Z"/></g>
+      <circle cx="39" cy="42" r="8" fill="#222"/><circle cx="61" cy="42" r="8" fill="#222"/><path d="M50 50 L45 58 H55Z" fill="#222"/>
+      <path d="M40 64 V72 M50 64 V72 M60 64 V72" stroke="#222" stroke-width="2.5"/>`],
+  ['snowflake', `<g stroke="#3FA9F5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      ${rep(6, i => `<g transform="rotate(${i * 60} 50 50)"><line x1="50" y1="50" x2="50" y2="7"/><polyline points="40,16 50,25 60,16"/><polyline points="42,30 50,37 58,30"/></g>`)}</g>`],
+  ['snowman', `<path d="M36 22 H64" stroke="#222" stroke-width="5"/><rect x="40" y="2" width="20" height="20" fill="#222"/><rect x="40" y="16" width="20" height="4" fill="#E4002B"/>
+      <circle cx="50" cy="70" r="24" fill="#fff" stroke="#6aaed6" stroke-width="3"/><circle cx="50" cy="36" r="15" fill="#fff" stroke="#6aaed6" stroke-width="3"/>
+      <circle cx="44" cy="32" r="2.5" fill="#222"/><circle cx="56" cy="32" r="2.5" fill="#222"/><path d="M50 37 L64 40 L50 41Z" fill="#F7941D"/>
+      <path d="M36 48 Q50 56 64 48" stroke="#E4002B" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <circle cx="50" cy="62" r="3" fill="#222"/><circle cx="50" cy="74" r="3" fill="#222"/>
+      <path d="M28 60 L10 48 M72 60 L90 48" stroke="#7a4012" stroke-width="3" stroke-linecap="round"/>`],
+  ['spider', `<g stroke="#222" stroke-width="3.5" fill="none" stroke-linejoin="round" stroke-linecap="round">
+      ${[[[44, 48], [26, 30], [16, 40]], [[42, 54], [20, 46], [6, 58]], [[42, 60], [22, 64], [10, 80]], [[44, 64], [32, 78], [28, 94]]]
+        .map(p => `<polyline points="${p.map(q => q.join(',')).join(' ')}"/><polyline points="${p.map(q => (100 - q[0]) + ',' + q[1]).join(' ')}"/>`).join('')}</g>
+      <circle cx="50" cy="66" r="16" fill="#222"/><circle cx="50" cy="42" r="11" fill="#222"/>
+      <circle cx="46" cy="40" r="2.5" fill="#fff"/><circle cx="54" cy="40" r="2.5" fill="#fff"/><line x1="50" y1="6" x2="50" y2="31" stroke="#222" stroke-width="1.5"/>`],
+  ['spider web', `<g stroke="#7E4A9E" stroke-width="2.8" fill="none" stroke-linejoin="round">
+      ${rep(8, i => { const a = i * Math.PI / 4; return `<line x1="50" y1="50" x2="${(50 + 46 * Math.cos(a)).toFixed(1)}" y2="${(50 + 46 * Math.sin(a)).toFixed(1)}"/>`; })}
+      ${[12, 22, 32, 42].map(r => `<polygon points="${Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4; return (50 + r * Math.cos(a)).toFixed(1) + ',' + (50 + r * Math.sin(a)).toFixed(1); }).join(' ')}"/>`).join('')}</g>`],
+  ['sun', `${rep(12, i => `<polygon points="50,2 57,20 43,20" transform="rotate(${i * 30} 50 50)" fill="#F7931E"/>`)}
+      <circle cx="50" cy="50" r="28" fill="#FFD200" stroke="#E08A00" stroke-width="3"/>
+      <circle cx="41" cy="46" r="3" fill="#7a4a00"/><circle cx="59" cy="46" r="3" fill="#7a4a00"/><path d="M38 57 Q50 68 62 57" stroke="#7a4a00" stroke-width="3" fill="none" stroke-linecap="round"/>`],
+  ['sunglasses', `<path d="M4 40 H96" stroke="#222" stroke-width="5"/>
+      <path d="M8 40 H44 V50 Q44 70 26 70 Q8 70 8 50Z" fill="#222"/><path d="M56 40 H92 V50 Q92 70 74 70 Q56 70 56 50Z" fill="#222"/>
+      <path d="M44 44 Q50 38 56 44" stroke="#222" stroke-width="4" fill="none"/><path d="M4 40 L2 30 M96 40 L98 30" stroke="#222" stroke-width="4"/>
+      <path d="M14 46 L24 46 L16 56Z M62 46 L72 46 L64 56Z" fill="#fff" opacity=".5"/>`],
+  ['target', `<g stroke="#E4002B" stroke-width="6" fill="none"><circle cx="50" cy="50" r="32"/><circle cx="50" cy="50" r="12"/></g>
+      <g stroke="#E4002B" stroke-width="6" stroke-linecap="round"><line x1="50" y1="4" x2="50" y2="34"/><line x1="50" y1="66" x2="50" y2="96"/><line x1="4" y1="50" x2="34" y2="50"/><line x1="66" y1="50" x2="96" y2="50"/></g>`],
+  ['taxi', `<rect x="38" y="20" width="24" height="10" rx="2" fill="#222"/><text x="50" y="28.5" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFCC00" font-family="Arial">TAXI</text>
+      <path d="M6 70 V56 Q8 48 20 46 L30 32 H70 L80 46 Q92 48 94 58 V70Z" fill="#FFCC00" stroke="#333" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M34 36 H48 V46 H26Z M52 36 H66 L74 46 H52Z" fill="#9ed4f2" stroke="#333" stroke-width="2"/>
+      <path d="M6 56 H94" stroke="#222" stroke-width="3" stroke-dasharray="5 5"/>
+      <circle cx="26" cy="72" r="10" fill="#222"/><circle cx="74" cy="72" r="10" fill="#222"/><circle cx="26" cy="72" r="4" fill="#bbb"/><circle cx="74" cy="72" r="4" fill="#bbb"/>`],
+  ['tortoise', `<path d="M78 58 Q90 44 96 54 Q96 64 84 64Z" fill="#9CCB5B" stroke="#3d6b17" stroke-width="2.5"/><circle cx="90" cy="53" r="2" fill="#222"/>
+      <g fill="#9CCB5B" stroke="#3d6b17" stroke-width="2.5"><ellipse cx="26" cy="72" rx="8" ry="11"/><ellipse cx="68" cy="72" rx="8" ry="11"/><path d="M12 62 L2 66 L12 68Z"/></g>
+      <path d="M10 66 Q12 24 48 22 Q84 24 86 66Z" fill="#4E9A2E" stroke="#26541a" stroke-width="3"/>
+      <g fill="none" stroke="#A7D86D" stroke-width="2.5"><polygon points="40,36 56,36 62,50 56,62 40,62 34,50"/><path d="M40 36 L32 28 M56 36 L64 28 M34 50 H14 M62 50 H82 M40 62 L36 66 M56 62 L60 66"/></g>`],
+  ['treble clef', `<path d="M54 90 Q42 96 38 86 Q36 78 46 78 Q52 80 50 86 M52 86 L58 8 Q70 16 64 34 Q32 54 30 68 Q30 84 52 82 Q72 80 70 62 Q66 48 50 54 Q42 58 46 68" stroke="#E6007E" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="42" cy="86" r="6" fill="#E6007E"/>`],
+  ['tree', `<rect x="42" y="60" width="16" height="34" rx="3" fill="#8B5A2B" stroke="#4d2d10" stroke-width="2.5"/>
+      <g fill="#2E9E45" stroke="#17602a" stroke-width="2.5"><circle cx="32" cy="46" r="20"/><circle cx="68" cy="46" r="20"/><circle cx="50" cy="28" r="22"/><circle cx="50" cy="56" r="16"/></g>
+      <g fill="#2E9E45"><circle cx="50" cy="44" r="18"/></g>`],
+  ['water drop', `<path d="M50 4 Q82 46 82 64 A32 32 0 0 1 18 64 Q18 46 50 4Z" fill="#1EA0E6" stroke="#0b5c86" stroke-width="3"/><path d="M34 60 Q34 74 44 80" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" opacity=".7"/>`],
+  ['dog', `<ellipse cx="22" cy="42" rx="12" ry="24" fill="#6B3E1E" transform="rotate(20 22 42)"/><ellipse cx="78" cy="42" rx="12" ry="24" fill="#6B3E1E" transform="rotate(-20 78 42)"/>
+      <circle cx="50" cy="50" r="30" fill="#D08C4A" stroke="#6B3E1E" stroke-width="2.5"/>
+      <ellipse cx="50" cy="66" rx="18" ry="14" fill="#FFF1DC"/><ellipse cx="50" cy="58" rx="7" ry="5" fill="#222"/>
+      <circle cx="39" cy="42" r="4" fill="#222"/><circle cx="61" cy="42" r="4" fill="#222"/>
+      <path d="M44 70 Q50 76 56 70" stroke="#222" stroke-width="2.5" fill="none"/><path d="M50 72 Q52 86 58 80" fill="#F07B9E"/>`],
+  ['yin yang', `<circle cx="50" cy="50" r="44" fill="#fff" stroke="#222" stroke-width="3"/>
+      <path d="M50 6 A44 44 0 0 1 50 94 A22 22 0 0 1 50 50 A22 22 0 0 0 50 6Z" fill="#222"/>
+      <circle cx="50" cy="28" r="7" fill="#222"/><circle cx="50" cy="72" r="7" fill="#fff"/>`],
+  ['zebra', `<clipPath id="zebraClip"><path d="M30 94 L34 62 Q18 58 12 46 Q8 38 16 32 L40 18 L44 4 L50 14 L58 6 L60 22 Q74 30 76 50 Q78 74 72 94Z"/></clipPath>
+      <path d="M30 94 L34 62 Q18 58 12 46 Q8 38 16 32 L40 18 L44 4 L50 14 L58 6 L60 22 Q74 30 76 50 Q78 74 72 94Z" fill="#fff"/>
+      <g clip-path="url(#zebraClip)" stroke="#222" stroke-width="5" fill="none">
+        <path d="M40 30 Q48 40 44 54"/><path d="M52 26 Q60 40 56 58"/><path d="M64 32 Q70 50 64 70"/><path d="M40 66 Q56 64 76 74"/><path d="M36 80 Q56 76 76 86"/><path d="M22 36 Q28 42 26 50"/></g>
+      <path d="M8 42 Q10 54 22 56 Q18 44 8 42Z" fill="#222"/>
+      <path d="M30 94 L34 62 Q18 58 12 46 Q8 38 16 32 L40 18 L44 4 L50 14 L58 6 L60 22 Q74 30 76 50 Q78 74 72 94Z" fill="none" stroke="#222" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M60 22 L68 18 L66 26 L76 26 L72 34 L82 36 L76 44 L84 50 L78 56" fill="#222" stroke="#222" stroke-width="2"/>
+      <circle cx="36" cy="32" r="3" fill="#222"/>`],
+];
+
+// Build <symbol> library
+document.getElementById('defs').innerHTML = SYMBOLS.map(([name, body], i) =>
+  `<symbol id="sy${i}" viewBox="0 0 100 100" overflow="visible"><title>${name}</title>${body}</symbol>`).join('');
+
+// ------------------------------------------------------------------
+// Deck: finite projective plane of order 7 → 57 cards, 57 symbols,
+// every pair of cards shares exactly one symbol. Use 55 of them.
+// ------------------------------------------------------------------
+function buildDeck() {
+  const n = 7, cards = [];
+  for (let m = 0; m < n; m++)
+    for (let b = 0; b < n; b++) {
+      const c = [];
+      for (let x = 0; x < n; x++) c.push(x * n + (m * x + b) % n);
+      c.push(n * n + m);
+      cards.push(c);
+    }
+  for (let x = 0; x < n; x++) {
+    const c = [];
+    for (let y = 0; y < n; y++) c.push(x * n + y);
+    c.push(n * n + n);
+    cards.push(c);
+  }
+  cards.push(Array.from({ length: n + 1 }, (_, i) => n * n + i));
+  return cards;
+}
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+
+// ------------------------------------------------------------------
+// Card rendering
+// ------------------------------------------------------------------
+const rand = (a, b) => a + Math.random() * (b - a);
+function renderCard(el, card) {
+  const syms = shuffle(card.slice());
+  const off = Math.random() * Math.PI * 2;
+  const slots = [{ x: rand(-3, 3), y: rand(-3, 3), base: 50 }];
+  for (let i = 0; i < 7; i++) {
+    const a = off + i * 2 * Math.PI / 7 + rand(-0.06, 0.06);
+    const r = 63 + rand(-2, 2);
+    slots.push({ x: r * Math.cos(a), y: r * Math.sin(a), base: 40 });
+  }
+  let s = `<svg viewBox="-100 -100 200 200"><circle r="97" fill="#fff" stroke="#d6dbe1" stroke-width="2"/>`;
+  syms.forEach((sym, i) => {
+    const sl = slots[i], size = sl.base * rand(0.8, 1.15), rot = Math.floor(rand(0, 360));
+    s += `<g class="sym" data-s="${sym}" transform="translate(${sl.x.toFixed(1)} ${sl.y.toFixed(1)}) rotate(${rot})">
+      <circle r="${(size / 2 + 2).toFixed(1)}" fill="#fff" fill-opacity="0" pointer-events="all"/>
+      <use href="#sy${sym}" x="${-size / 2}" y="${-size / 2}" width="${size}" height="${size}"/></g>`;
+  });
+  el.innerHTML = s + `</svg>`;
+}
+
+// ------------------------------------------------------------------
+// Game state
+// ------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const mineEl = $('mine'), centerEl = $('center');
+let pile = [], center = null, running = false, startT = 0, penalty = 0, mistakes = 0, raf = 0;
+const TOTAL = 54;
+
+function now() { return running ? (performance.now() - startT) / 1000 + penalty : 0; }
+function fmt(t) { return t.toFixed(2); }
+
+function loadBest() {
+  try { return JSON.parse(localStorage.getItem('spotit_best_times') || '[]'); } catch (e) { return []; }
+}
+function saveBest(list) {
+  try { localStorage.setItem('spotit_best_times', JSON.stringify(list)); } catch (e) {}
+}
+function bestTable(list, highlight) {
+  if (!list.length) return '<p class="hint">No times yet — set your first record!</p>';
+  return `<table><tr><th>#</th><th>Time</th><th>Mistakes</th><th>Date</th></tr>` +
+    list.map((r, i) => `<tr class="${r === highlight ? 'me' : ''}"><td>${i + 1}</td><td>${fmt(r.time)}s</td><td>${r.mistakes}</td><td>${new Date(r.date).toLocaleDateString()}</td></tr>`).join('') +
+    `</table>`;
+}
+function refreshBest() {
+  const list = loadBest();
+  $('best').textContent = list.length ? fmt(list[0].time) : '—';
+  $('bestList1').innerHTML = list.length ? '<b>Top times</b>' + bestTable(list) : '';
+}
+
+function newGame() {
+  cancelAnimationFrame(raf);
+  running = false;
+  // Random deck: shuffle cards, drop 2 (55 remain), randomize which picture is which symbol
+  const perm = shuffle(Array.from({ length: 57 }, (_, i) => i));
+  const deck = shuffle(buildDeck()).slice(0, 55).map(c => c.map(s => perm[s]));
+  center = deck[0];
+  pile = deck.slice(1);
+  penalty = 0; mistakes = 0;
+  $('timer').textContent = '0.00'; $('miss').textContent = '0'; $('left').textContent = pile.length;
+  mineEl.innerHTML = ''; centerEl.innerHTML = '';
+  $('endScreen').classList.add('hidden');
+  $('startScreen').classList.add('hidden');
+  countdown();
+}
+
+function countdown() {
+  const cs = $('countScreen'), cd = $('countdown');
+  cs.classList.remove('hidden');
+  let n = 3; cd.textContent = n;
+  const iv = setInterval(() => {
+    n--;
+    if (n > 0) cd.textContent = n;
+    else { clearInterval(iv); cs.classList.add('hidden'); begin(); }
+  }, 700);
+}
+
+function begin() {
+  renderCard(centerEl, center);
+  renderCard(mineEl, pile[0]);
+  running = true;
+  startT = performance.now();
+  tick();
+}
+function tick() {
+  $('timer').textContent = fmt(now());
+  raf = requestAnimationFrame(tick);
+}
+
+function bump(el, cls) {
+  el.classList.remove('ok', 'wrong'); void el.offsetWidth; el.classList.add(cls);
+}
+
+function onPick(e) {
+  if (!running) return;
+  const g = e.target.closest('.sym');
+  if (!g) return;
+  const s = +g.dataset.s;
+  if (center.includes(s) && pile[0].includes(s)) {
+    center = pile.shift();
+    $('left').textContent = pile.length;
+    if (!pile.length) return finish();
+    renderCard(centerEl, center);
+    renderCard(mineEl, pile[0]);
+    bump(centerEl, 'ok'); bump(mineEl, 'ok');
+  } else {
+    penalty += 1.5; mistakes++;
+    $('miss').textContent = mistakes;
+    bump(e.currentTarget, 'wrong');
+    const t = $('timer'); t.classList.add('flash'); setTimeout(() => t.classList.remove('flash'), 400);
+    const p = document.createElement('div');
+    p.className = 'penalty'; p.textContent = '+1.5s';
+    p.style.left = e.clientX + 'px'; p.style.top = (e.clientY - 20) + 'px';
+    document.body.appendChild(p); setTimeout(() => p.remove(), 800);
+  }
+}
+mineEl.addEventListener('pointerdown', onPick);
+centerEl.addEventListener('pointerdown', onPick);
+
+function finish() {
+  const time = now();
+  running = false;
+  cancelAnimationFrame(raf);
+  $('timer').textContent = fmt(time);
+  renderCard(centerEl, center);
+  mineEl.innerHTML = '';
+  const list = loadBest();
+  const rec = { time, mistakes, date: Date.now() };
+  const prevBest = list.length ? list[0].time : Infinity;
+  list.push(rec); list.sort((a, b) => a.time - b.time);
+  const top = list.slice(0, 10);
+  saveBest(top);
+  $('finalTime').textContent = fmt(time) + 's';
+  $('finalDetail').textContent = `${mistakes} mistake${mistakes === 1 ? '' : 's'} (+${fmt(mistakes * 1.5)}s penalty)`;
+  $('newBest').textContent = time < prevBest ? '🏆 New best time!' : `Best: ${fmt(prevBest)}s`;
+  $('bestList2').innerHTML = bestTable(top, top.includes(rec) ? rec : null);
+  refreshBest();
+  $('endScreen').classList.remove('hidden');
+}
+
+$('startBtn').onclick = newGame;
+$('againBtn').onclick = newGame;
+$('quit').onclick = () => { cancelAnimationFrame(raf); running = false; newGame(); };
+document.addEventListener('keydown', e => {
+  if ((e.key === ' ' || e.key === 'Enter') && (!$('endScreen').classList.contains('hidden') || !$('startScreen').classList.contains('hidden'))) {
+    e.preventDefault(); newGame();
+  }
+});
+refreshBest();
+</script>
+</body>
+</html>
